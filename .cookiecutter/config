@@ -1,0 +1,5 @@
+# Change these at your peril:
+export PROJECT_NAME=asf_vahp_visitor_evaluation
+export REPO_NAME=asf_vahp_visitor_evaluation
+export DESCRIPTION=Code to analyse Visit a Heat Pump visitor survey responses
+export PROJECT_OPENNESS=public
