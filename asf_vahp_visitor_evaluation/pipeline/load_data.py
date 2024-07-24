@@ -176,7 +176,7 @@ def make_analysis_ready(
         source: Filepath to survey data to be processed.
         usecols: Iterable of column names to load from source.
         dtype: Schema dictionary for columns at read.
-        data_cols: List of columns to interpret as datetime objects.
+        date_cols: List of columns to interpret as datetime objects.
         categories: Dictionary of categorical columns (keys) with a tuple
           of categories and order (e.g. {"col": (['cat1', 'cat2'], False),})
         binaries: List of columns to be convert to boolean.
@@ -209,11 +209,7 @@ def make_analysis_ready(
     col = pandas.Series(data=numpy.repeat(wave_id, repeats=len(data)), name="wave")
     data.insert(3, col.name, col)
     # 8. Remove non-consenting responses
-    data = data.loc[
-        data[data.columns[data.columns.str.startswith("I agree to participate")][0]]
-        == "Yes",
-        :,
-    ]
+    data = data.loc[data[previsitq.q0e] == "Yes", :]
     # 9. Remove any responses that are missing on email address
     data = data.loc[data["Your email address"].notnull(), :]
     # 10. Replace email with anonymous ID
