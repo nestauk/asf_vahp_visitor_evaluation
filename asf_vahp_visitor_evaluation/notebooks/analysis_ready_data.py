@@ -25,6 +25,8 @@ from asf_vahp_visitor_evaluation.pipeline.load_data import (
     make_linked_data,
 )
 
+from asf_vahp_visitor_evaluation.config import config
+
 
 # %% [markdown]
 # ## Visit a Heat Pump Visitor Evaluation
@@ -49,7 +51,7 @@ from asf_vahp_visitor_evaluation.pipeline.load_data import (
 
 # %%
 # Run this to create and update main visitor linkage table.
-create_anonymous_id()
+create_anonymous_id(exclude_from_linkage=True)
 
 # %%
 # Analysis ready pre-visit data
@@ -65,7 +67,7 @@ linked = make_linked_data([pre, post])
 
 # %%
 # Save out datasets
-anonymous_data_root = ""
+anonymous_data_root = config.ANONYMISED_DATA_ROOT
 
 date = datetime.datetime.now().strftime("%Y%m%d")
 
