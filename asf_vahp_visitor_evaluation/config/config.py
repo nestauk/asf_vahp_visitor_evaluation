@@ -1,6 +1,9 @@
 # Lookup for linkage
 MAIN_LOOKUP = ""
 
+# Lookups to exclude
+EXCLUDE_FROM_LOOKUP = ""
+
 # Pre-Visit Survey
 PRE_VISIT_SURVEY = ""
 
@@ -9,6 +12,9 @@ POST_VISIT_SURVEY = ""
 
 # Follow-up survey
 FOLLOW_UP_SURVEY = ""
+
+# Anonymised data
+ANONYMISED_DATA_ROOT = ""
 
 PRE_VISIT_SCHEMA = {
     "Response ID": "int32",

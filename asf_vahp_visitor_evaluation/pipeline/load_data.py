@@ -23,6 +23,8 @@ def create_anonymous_id(
         config.POST_VISIT_SURVEY,
         config.FOLLOW_UP_SURVEY,
     ],
+    exclude_from_linkage: bool = False,
+    exclude_lookup: str = config.EXCLUDE_FROM_LOOKUP,
 ) -> None:
     """Create anonymous IDs from emails for linkage."""
     # Get main file
@@ -57,6 +59,14 @@ def create_anonymous_id(
     new_lookup = pandas.DataFrame(
         data={"email": candidate_emails, "visitor_id": new_ids}
     )
+    if exclude_from_linkage:
+        # Get exclusions file
+        exclude = pandas.read_csv(
+            config.EXCLUDE_FROM_LOOKUP, header=None, names=["email"]
+        )
+        # Select non-excluded emails from new_lookup
+        new_lookup = new_lookup[~new_lookup["email"].isin(exclude["email"])]
+    # update file on google drive
     new_lookup.to_csv(main_lookup, mode="a", index=False, header=False)
     return None
 
