@@ -1,0 +1,243 @@
+---
+title: "Visit a Heat Pump Visitor Evaluation Report"
+author: "Daniel Lewis"
+execute:
+  echo: false
+format:
+  pdf:
+    toc: false
+    papersize: A4
+jupyter: python3
+---
+
+```{python}
+import pandas
+from IPython.display import Markdown
+
+from asf_vahp_visitor_evaluation.config.config import ANONYMISED_DATA_ROOT
+
+from asf_vahp_visitor_evaluation.utils.lookups import (
+    PreVisitQuestionNumbers as preQ,
+    LinkedQuestionNumbers as linkQ
+    )
+
+pre_file_name = "20240911_pre_visit_survey.parquet"
+linked_file_name = "20240911_linked_pre_post_visit_survey.parquet"
+```
+
+```{python}
+# Load relevant data
+pre = pandas.read_parquet(ANONYMISED_DATA_ROOT + pre_file_name)
+linked = pandas.read_parquet(ANONYMISED_DATA_ROOT + linked_file_name)
+
+# Create complete cases for pre-survey data
+pre = pre.dropna(axis='index',
+                 how='any',
+                 subset=[preQ.q5, preQ.q6, preQ.q7, preQ.q8, preQ.q9, preQ.q10, preQ.q11, preQ.q12, preQ.q12, preQ.q13, preQ.q14,
+                 preQ.q22, preQ.q23, preQ.q24])
+
+# Create complete cases for linked survey data
+linked = linked.dropna(axis='index',
+                       how='any',
+                       subset=[linkQ.q1, linkQ.q2, linkQ.q3, linkQ.q4, linkQ.q5, linkQ.q6, linkQ.q7, linkQ.q8])
+
+# Get any ids missing on demographics
+ids = linked.loc[(linked[linkQ.q0f] == 'PRE') &
+                 (linked[linkQ.q17].isna() |
+                  linked[linkQ.q18].isna() |
+                  linked[linkQ.q19].isna()),
+                 linkQ.q0g].to_list()
+# Remove records with missing demographics.
+linked = linked[~linked['visitor_id'].isin(ids)]
+```
+
+## Overview
+
+Most people in the UK have never seen a heat pump in real life. We think that if people have the opportunity to visit a heat pump, then they can gain a better understanding of what having a heat pump in their home actually entails. We believe that this will make people more likely to install a heat pump in their home in the future.
+
+To support this, Nesta has created the [Visit a Heat Pump](https://www.visitaheatpump.com/) service. Visit a heat pump connects visitors who are potential heat pump adopters with hosts who own homes with heat pumps. Hosts create events at their homes that visitors can attend to see a heat pump, hear about the host's experience with the heat pump, and ask questions.
+
+We sent visitors a short survey in the days leading up to an event they had registered to attend and again in the days after an event had taken place to capture whether visiting a heat pump had influenced visitor attitudes towards heat pumps.
+
+The data in this report covers `{python} pre.shape[0]` visitors who completed a survey before visiting and `{python} linked.shape[0] // 2` visitors who completed both a survey before and after visiting. Survey data collection occured between `{python} linked[linkQ.q0b].min().strftime("%d %B %Y")` and `{python} linked[linkQ.q0b].max().strftime("%d %B %Y")`.
+
+## Who Visited?
+
+We collected some demographic data about visitors prior to the visit taking place.
+
+Visitors were more likely to be male (@tbl-visitor-gender), older (@tbl-visitor-age), and white (@tbl-visitor-ethnicity).
+
+```{python}
+#| label: tbl-visitor-gender
+#| tbl-cap: Visitor demographics, Gender.
+
+Markdown(pre[preQ.q22].value_counts().to_frame().assign(percentage = lambda df: round(df['count'] / df['count'].sum() * 100, 1)).to_markdown())
+```
+
+```{python}
+#| label: tbl-visitor-age
+#| tbl-cap: Visitor demographics, Age.
+
+Markdown(pre[preQ.q23].value_counts().sort_index().to_frame().assign(percentage = lambda df: round(df['count'] / df['count'].sum() * 100, 1)).to_markdown())
+```
+
+```{python}
+#| label: tbl-visitor-ethnicity
+#| tbl-cap: Visitor demographics, Ethnicity.
+
+Markdown(pre[preQ.q24].value_counts().sort_index().to_frame().assign(percentage = lambda df: round(df['count'] / df['count'].sum() * 100, 1)).to_markdown())
+```
+
+## Visitors' Homes
+
+We also asked visitors about their homes, including tenure, the type, size and age of the property they live in, and their current heating system.
+
+Visitors were mostly homeowners with the majority owning their home outright (@tbl-visitor-tenure). Visitors lived in houses, most commonly detached (@tbl-visitor-property-type). Visitors live in properties of all different ages (@tbl-visitor-property-age). Visitors also tended to live in larger properties (@tbl-visitor-property-size).
+
+A gas boiler was the most common heat source that visitors currently have in their homes (@tbl-visitor-property-heat-source). Most visitors reported using radiators as their emitter (@tbl-visitor-property-emitter).
+
+```{python}
+#| label: tbl-visitor-tenure
+#| tbl-cap: Visitors' homes, Tenure.
+
+Markdown(pre[preQ.q21].value_counts().to_frame().assign(percentage = lambda df: round(df['count'] / df['count'].sum() * 100, 1)).to_markdown())
+```
+
+```{python}
+#| label: tbl-visitor-property-type
+#| tbl-cap: Visitors' homes, Property Type.
+
+# Combine house/bungalow and flat/maisonette subtypes into a single column
+pre['property_sub_type'] = pre[[preQ.q17, preQ.q18]].apply(lambda x: x[preQ.q17] if isinstance(x[preQ.q17], str) else x[preQ.q18], axis=1)
+
+# Set Other to other
+pre.loc[pre[preQ.q16] == 'Other - Write In', 'property_sub_type'] = 'Other'
+
+# Create combined property type table
+table = pre.groupby([preQ.q16, 'property_sub_type'], observed=True)[preQ.q16].count().unstack()
+table = table.assign(Total = table.sum(axis=1)).stack().astype(int)[:-1]
+
+# set the index order
+index_order = [('A whole house', 'Detached'), ('A whole house', 'Semi-Detached'), ('A whole house', 'Mid-terrace'), ('A whole house', 'End-terrace'), ('A whole house', 'Total'),
+               ('A bungalow', 'Detached'), ('A bungalow', 'Semi-Detached'), ('A bungalow', 'Total'),
+               ('A flat or apartment', 'In a purpose-built block of flats or tenement'), ('A flat or apartment', 'Part of a converted or shared house'), ('A flat or apartment', 'Part of another converted building (e.g. former school, church, or warehouse)'), ('A flat or apartment', 'Total'),
+               ('A maisonette', 'In a purpose-built block of flats or tenement'), ('A maisonette', 'Part of a converted or shared house'), ('A maisonette', 'Total'), ('Other - Write In', 'Other')]
+# reindex
+table = table.reindex(index=index_order)
+
+table = table.to_frame().rename(columns={0: 'count'}).reset_index().rename(columns={'property_sub_type': 'Specific Property Type'})
+
+new_index = []
+for label in table[preQ.q16]:
+    if label in new_index:
+        new_index.append("")
+    else:
+        new_index.append(label)
+
+# reindex
+table[preQ.q16] = new_index
+
+Markdown(table.to_markdown(index=False))
+
+```
+
+```{python}
+#| label: tbl-visitor-property-age
+#| tbl-cap: Visitors' homes, Property Age.
+
+Markdown(pre[preQ.q19].value_counts().sort_index().to_frame().assign(percentage = lambda df: round(df['count'] / df['count'].sum() * 100, 1)).to_markdown())
+```
+
+```{python}
+#| label: tbl-visitor-property-size
+#| tbl-cap: Visitors' homes, Property Size.
+
+Markdown(pre[preQ.q20].value_counts().sort_index().to_frame().assign(percentage = lambda df: round(df['count'] / df['count'].sum() * 100, 1)).to_markdown())
+```
+
+```{python}
+#| label: tbl-visitor-property-heat-source
+#| tbl-cap: Visitors' homes, Heat Source.
+
+Markdown(pre[preQ.q14].value_counts().sort_index().to_frame().assign(percentage = lambda df: round(df['count'] / df['count'].sum() * 100, 1)).to_markdown())
+```
+
+```{python}
+#| label: tbl-visitor-property-emitter
+#| tbl-cap: Visitors' homes, Emitters (Select all that apply).
+
+table = pre[preQ.q15].sum()
+table.name = "count"
+# abbreviation Index
+table.index = [label.split(":")[0] for label in table.index]
+table.index.name = "How does your central heating system distribute heat?"
+
+table.to_frame().assign(percentage = lambda df: round(df['count'] / pre.shape[0] * 100, 1))
+```
+
+## Encountering Visit a Heat Pump
+
+We asked visitors how they found out about visit a heat pump (@tbl-visitor-find-out), with most people finding VAHP in news articles. Other responses included recommendations from various energy providers as well as climate action groups. The vast majority of visitors had not previously visited a heat pump (@tbl-visitor-previous).
+
+```{python}
+#| label: tbl-visitor-find-out
+#| tbl-cap: How did you find out about visit a heat pump?
+
+Markdown(pre[preQ.q4].value_counts().pipe(lambda s: s[s>0]).to_frame().assign(percentage = lambda df: round(df['count'] / df['count'].sum() * 100, 1)).to_markdown())
+```
+
+```{python}
+#| label: tbl-visitor-previous
+#| tbl-cap: Have you ever previously visited a property with a heat pump?
+
+Markdown(pre[preQ.q5].value_counts().to_frame().assign(percentage = lambda df: round(df['count'] / df['count'].sum() * 100, 1)).to_markdown())
+```
+
+## Motivations for Visiting a Heat Pump
+
+Before visitors attended an event, we asked them some questions about their motivation for visiting a heat pump.
+
+Most people told us they were visiting a heat pump because they planned to retrofit their existing home (@tbl-visitor-motivations-visit). Motivations were diverse, with the environment, bills, subsidy and futuring proofing all wided checked by respondents (@tbl-visitor-motivations).
+
+```{python}
+#| label: tbl-visitor-motivations-visit
+#| tbl-cap: Why visitors' chose to visit a heat pump.
+
+Markdown(pre[preQ.q1].value_counts().sort_index().to_frame().assign(percentage = lambda df: round(df['count'] / df['count'].sum() * 100, 1)).to_markdown())
+```
+
+```{python}
+#| label: tbl-visitor-motivations
+#| tbl-cap: Visitors' motivations (Select all that apply).
+
+table = pre[preQ.q2].sum()
+table.name = "count"
+# abbreviation Index
+table.index = [label.split(":")[0] for label in table.index]
+table.index.name = "What motivates you to consider a heat pump for your home heating?"
+
+table.to_frame().assign(percentage = lambda df: round(df['count'] / pre.shape[0] * 100, 1))
+```
+
+## Visitor Expectations
+
+Prior to the visit, we asked prospective visitors what they were hoping to find out (@tbl-tbl-visitor-expectations), aside from the general experience of living with a heat pump, finding out more about noise and cost was important to people.
+
+```{python}
+#| label: tbl-visitor-expectations
+#| tbl-cap: Visitors' Expectations (Select all that apply).
+
+table = pre[preQ.q3].sum()
+table.name = "count"
+# abbreviation Index
+table.index = [label.split(":")[0] for label in table.index]
+table.index.name = "What are you hoping to find out by visiting a heat pump?"
+
+table.to_frame().assign(percentage = lambda df: round(df['count'] / pre.shape[0] * 100, 1))
+```
+
+## Vistor Heat Pump Journeys
+
+To evaluate the more immediate impact of visiting a heat pump, we asked visitors about aspects of their heat pump journey both before and after the visit. This covered both their awareness and attitudes towards heat pumps as well as actions they may have taken. We are particularly interested in whether and how some of these factors have changed.
+
+The sample of people who provided responses both before and after their visit is smaller than the total sample of people who filled in the pre-visit survey. We looked at whether the people in the linked sample was different to the pre-visit sample and found...
