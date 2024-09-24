@@ -4,30 +4,41 @@ author: "Daniel Lewis"
 execute:
   echo: false
 format:
-  pdf:
-    toc: false
-    papersize: A4
+#  pdf:
+#    toc: false
+#    papersize: A4
+  html:
+    toc: true
+    self-contained: true
 jupyter: python3
 ---
 
 ```{python}
 import pandas
+import numpy
+import altair
+from statsmodels.stats.api import SquareTable
 from IPython.display import Markdown
 
 from asf_vahp_visitor_evaluation.config.config import ANONYMISED_DATA_ROOT
 
 from asf_vahp_visitor_evaluation.utils.lookups import (
     PreVisitQuestionNumbers as preQ,
+    PostVisitQuestionNumbers as postQ,
     LinkedQuestionNumbers as linkQ
     )
 
 pre_file_name = "20240911_pre_visit_survey.parquet"
+post_file_name = "20240911_post_visit_survey.parquet"
 linked_file_name = "20240911_linked_pre_post_visit_survey.parquet"
+
+renderer = altair.renderers.enable("png")
 ```
 
 ```{python}
 # Load relevant data
 pre = pandas.read_parquet(ANONYMISED_DATA_ROOT + pre_file_name)
+post = pandas.read_parquet(ANONYMISED_DATA_ROOT + post_file_name)
 linked = pandas.read_parquet(ANONYMISED_DATA_ROOT + linked_file_name)
 
 # Create complete cases for pre-survey data
@@ -35,6 +46,11 @@ pre = pre.dropna(axis='index',
                  how='any',
                  subset=[preQ.q5, preQ.q6, preQ.q7, preQ.q8, preQ.q9, preQ.q10, preQ.q11, preQ.q12, preQ.q12, preQ.q13, preQ.q14,
                  preQ.q22, preQ.q23, preQ.q24])
+
+# Create complete cases for post-survey data
+post = post.dropna(axis='index',
+                   how='any',
+                   subset=[*postQ.q1, *postQ.q2, *postQ.q3, *postQ.q4, postQ.q5, postQ.q6, postQ.q7, *postQ.q18])
 
 # Create complete cases for linked survey data
 linked = linked.dropna(axis='index',
@@ -49,6 +65,10 @@ ids = linked.loc[(linked[linkQ.q0f] == 'PRE') &
                  linkQ.q0g].to_list()
 # Remove records with missing demographics.
 linked = linked[~linked['visitor_id'].isin(ids)]
+
+# Remove records without linkage
+single_ids = (linked['visitor_id'].value_counts()).pipe(lambda s: s[s==1]).index
+linked = linked[~linked['visitor_id'].isin(single_ids)]
 ```
 
 ## Overview
@@ -59,7 +79,7 @@ To support this, Nesta has created the [Visit a Heat Pump](https://www.visitahea
 
 We sent visitors a short survey in the days leading up to an event they had registered to attend and again in the days after an event had taken place to capture whether visiting a heat pump had influenced visitor attitudes towards heat pumps.
 
-The data in this report covers `{python} pre.shape[0]` visitors who completed a survey before visiting and `{python} linked.shape[0] // 2` visitors who completed both a survey before and after visiting. Survey data collection occured between `{python} linked[linkQ.q0b].min().strftime("%d %B %Y")` and `{python} linked[linkQ.q0b].max().strftime("%d %B %Y")`.
+The data in this report covers `{python} pre.shape[0]` visitors who completed a survey before visiting and `{python} linked.shape[0] // 2` visitors who completed both a survey before and after visiting and `{python} post.shape[0]` visitors who filled in the survey after visiting. Survey data collection occured between `{python} pre[preQ.q0b].min().strftime("%d %B %Y")` and `{python} post[postQ.q0b].max().strftime("%d %B %Y")`.
 
 ## Who Visited?
 
@@ -221,7 +241,7 @@ table.to_frame().assign(percentage = lambda df: round(df['count'] / pre.shape[0]
 
 ## Visitor Expectations
 
-Prior to the visit, we asked prospective visitors what they were hoping to find out (@tbl-tbl-visitor-expectations), aside from the general experience of living with a heat pump, finding out more about noise and cost was important to people.
+Prior to the visit, we asked prospective visitors what they were hoping to find out (@tbl-visitor-expectations), aside from the general experience of living with a heat pump, finding out more about noise and cost was important to people.
 
 ```{python}
 #| label: tbl-visitor-expectations
@@ -236,8 +256,631 @@ table.index.name = "What are you hoping to find out by visiting a heat pump?"
 table.to_frame().assign(percentage = lambda df: round(df['count'] / pre.shape[0] * 100, 1))
 ```
 
-## Vistor Heat Pump Journeys
+## Visitor Heat Pump Journey
 
 To evaluate the more immediate impact of visiting a heat pump, we asked visitors about aspects of their heat pump journey both before and after the visit. This covered both their awareness and attitudes towards heat pumps as well as actions they may have taken. We are particularly interested in whether and how some of these factors have changed.
 
-The sample of people who provided responses both before and after their visit is smaller than the total sample of people who filled in the pre-visit survey. We looked at whether the people in the linked sample was different to the pre-visit sample and found...
+The sample of people who provided responses both before and after their visit is smaller than the total sample of people who filled in the pre-visit survey. We looked at whether the people in the linked sample were different to the pre-visit sample and found no evidence that they different significantly by gender, age or ethnicity, by tenure type, type or age of property, or by the heat pump journey questions discussed below. We tested these using chi-square tests of association. As such, the result present are broadly representative of the visitors discussed above. We can in a sense treat the linked data as a random sample of the pre survey data, albeit with the proviso that it may be non-random on some unobserved variable. This result largely stems from the fact that the vast majority of visitors stem from particular groups: older, white, owner occupiers of houses; over time as visitors diversify we may have to adjust for differences in response that emerge.
+
+Visitors reported improvements in all heat pump journey statements set out below except "My next heating system will use a heat pump as the main heat source" which stayed the same. Responses to this statement were already high before the visit as the sample of visitors observed are already highly motivated to install a heat pump in the future.
+
+### I understand how a heat pump works
+
+```{python}
+change_table = (linked.pivot(columns=linkQ.q0f,
+                             index= linkQ.q0g,
+                             values=linkQ.q1)
+                      .assign(diff = lambda df: df['POST'].astype(int) - df['PRE'].astype(int),
+                              change = lambda df: df['diff'].map(numpy.sign)))
+
+table = pandas.crosstab(change_table['PRE'], change_table['POST'])
+res = SquareTable(table, shift_zeros=False).homogeneity(method='bhapkar')
+```
+
+Visitors reported a better understanding of how a heat pump works after visiting a heat pump (@fig-understand-heat-pump). The most commonly selected value moved from `{python} linked.loc[linked[linkQ.q0f] == 'PRE', linkQ.q1].mode()[0]` before the visit to `{python} linked.loc[linked[linkQ.q0f] == 'POST', linkQ.q1].mode()[0]` after the visit.
+
+If we look at the differences in values pre- and post- visit (@fig-understand-heat-pump-change), we see that `{python} str(round(change_table['change'].value_counts(normalize=True)[0] *100, 1))`% of visitors don't change their understanding, while `{python} str(round(change_table['change'].value_counts(normalize=True)[1] *100, 1))`% report a positive change. The remaining `{python} str(round(change_table['change'].value_counts(normalize=True)[-1] *100, 1))`% report lower understanding after visiting a heat pump.
+
+Bhapkar's test for marginal homogeneity ($\chi^{2}$`{python} f"({res.df}, N={change_table.shape[0]}) = {res.statistic.round(1)}, p {'< 0.001' if res.pvalue < 0.001 else '= '+ str(res.pvalue.round(3))}"`) shows that the before and after responses are not the same.
+
+```{python}
+#| label: fig-understand-heat-pump
+#| fig-cap: Visitor reponses to "I understand how a heat pump works" before and after a visit a heat pump event.
+
+source = linked.groupby(linkQ.q0f, as_index=False)[linkQ.q1].value_counts(sort=False)
+
+fig = (altair
+ .Chart(source)
+ .mark_bar()
+ .encode(
+    x=altair.Column(f"{linkQ.q1.replace('.', chr(92) + '.')}:O",
+    title=[linkQ.q1, "1: Not very well \u2192 5: Very well"]),
+    xOffset=altair.Column(
+    f"{linkQ.q0f}:O", sort=["PRE", "POST"]),
+    y=altair.Column('count:Q', title='Visitor count'),
+    color=altair.Color(
+    f"{linkQ.q0f}:O", sort=["PRE", "POST"], scale=altair.Scale(domain=['PRE', 'POST'], range=['#6666ff', '#0000ff'])),
+).properties(
+    width=500,
+    height=200
+))
+fig.show()
+```
+
+```{python}
+#| label: fig-understand-heat-pump-change
+#| fig-cap: Differences in visitor reponses to "I understand how a heat pump works" before and after a visit a heat pump event.
+
+fig = (altair
+ .Chart(change_table['diff'].value_counts().sort_index().to_frame().reset_index())
+ .mark_bar(color='#0000ff')
+ .encode(
+    x=altair.Column("diff:O", title=["Difference pre- and post- visit", "0 - No change, +/- values indicate increased/decreased understanding post-visit."]),
+    y=altair.Column("count:Q", title="Number of visitors")
+).properties(
+    width=500,
+    height=200
+))
+fig.show()
+```
+
+### I can imagine what it would be like to have a heat pump in my home
+
+```{python}
+change_table = (linked.pivot(columns=linkQ.q0f,
+                             index= linkQ.q0g,
+                             values=linkQ.q2)
+                      .assign(diff = lambda df: df['POST'].astype(int) - df['PRE'].astype(int),
+                              change = lambda df: df['diff'].map(numpy.sign)))
+
+table = pandas.crosstab(change_table['PRE'], change_table['POST'])
+res = SquareTable(table, shift_zeros=False).homogeneity(method='bhapkar')
+```
+
+Visitors were better able to imagine having a heat pump in their home after visiting a heat pump (@fig-heat-pump-in-home). The most commonly selected value moved from `{python} linked.loc[linked[linkQ.q0f] == 'PRE', linkQ.q2].mode()[0]` before the visit to `{python} linked.loc[linked[linkQ.q0f] == 'POST', linkQ.q2].mode()[0]` after the visit.
+
+If we look at the differences in values pre- and post- visit (@fig-heat-pump-in-home-change), we see that `{python} str(round(change_table['change'].value_counts(normalize=True)[0] *100, 1))`% of visitors maintain their sense of what it would be like to have a heat pump in their home, while `{python} str(round(change_table['change'].value_counts(normalize=True)[1] *100, 1))`% report a positive change. The remaining `{python} str(round(change_table['change'].value_counts(normalize=True)[-1] *100, 1))`% report being less able to imagine having a heat pump in their home after visiting a heat pump.
+
+Bhapkar's test for marginal homogeneity ($\chi^{2}$`{python} f"({res.df}, N={change_table.shape[0]}) = {res.statistic.round(1)}, p {'< 0.001' if res.pvalue < 0.001 else '= '+ str(res.pvalue.round(3))}"`) shows that the before and after responses are not the same.
+
+```{python}
+#| label: fig-heat-pump-in-home
+#| fig-cap: Visitor reponses to "I can imagine what it would be like to have a heat pump in my home" before and after a visit a heat pump event.
+
+source = linked.groupby(linkQ.q0f, as_index=False)[linkQ.q2].value_counts(sort=False)
+
+fig = (altair
+ .Chart(source)
+ .mark_bar()
+ .encode(
+    x=altair.Column(f"{linkQ.q2.replace('.', chr(92) + '.')}:O",
+    title=[linkQ.q2, "1: Not easily at all \u2192 5: Very easily"]),
+    xOffset=altair.Column(
+    f"{linkQ.q0f}:O", sort=["PRE", "POST"]),
+    y=altair.Column('count:Q', title='Visitor count'),
+    color=altair.Color(
+    f"{linkQ.q0f}:O", sort=["PRE", "POST"], scale=altair.Scale(domain=['PRE', 'POST'], range=['#6666ff', '#0000ff'])),
+).properties(
+    width=500,
+    height=200
+))
+fig.show()
+```
+
+```{python}
+#| label: fig-heat-pump-in-home-change
+#| fig-cap: Differences in visitor reponses to "I can imagine what it would be like to have a heat pump in my home" before and after a visit a heat pump event.
+
+fig = (altair
+ .Chart(change_table['diff'].value_counts().sort_index().to_frame().reset_index())
+ .mark_bar(color='#0000ff')
+ .encode(
+    x=altair.Column("diff:O", title=["Difference pre- and post- visit", "0 - No change, +/- values indicate increase/decrease post-visit."]),
+    y=altair.Column("count:Q", title="Number of visitors")
+).properties(
+    width=500,
+    height=200
+))
+fig.show()
+```
+
+### I am confident that a heat pump would be an effective choice for my home
+
+```{python}
+change_table = (linked.pivot(columns=linkQ.q0f,
+                             index= linkQ.q0g,
+                             values=linkQ.q3)
+                      .assign(diff = lambda df: df['POST'].astype(int) - df['PRE'].astype(int),
+                              change = lambda df: df['diff'].map(numpy.sign)))
+
+table = pandas.crosstab(change_table['PRE'], change_table['POST'])
+res = SquareTable(table, shift_zeros=False).homogeneity(method='bhapkar')
+```
+
+Visitors were more confident that a heat pump would be an effective choice for their home after visiting a heat pump (@fig-heat-pump-confident). The most commonly selected value moved from `{python} linked.loc[linked[linkQ.q0f] == 'PRE', linkQ.q3].mode()[0]` before the visit to `{python} linked.loc[linked[linkQ.q0f] == 'POST', linkQ.q3].mode()[0]` after the visit.
+
+If we look at the differences in values pre- and post- visit (@fig-heat-pump-confident-change), we see that `{python} str(round(change_table['change'].value_counts(normalize=True)[0] *100, 1))`% of visitors maintain their confidence that a heat pump would be and effective choice for their home, while `{python} str(round(change_table['change'].value_counts(normalize=True)[1] *100, 1))`% report a positive change. The remaining `{python} str(round(change_table['change'].value_counts(normalize=True)[-1] *100, 1))`% report being less able to imagine having a heat pump in their home after visiting a heat pump.
+
+Bhapkar's test for marginal homogeneity ($\chi^{2}$`{python} f"({res.df}, N={change_table.shape[0]}) = {res.statistic.round(1)}, p {'< 0.001' if res.pvalue < 0.001 else '= '+ str(res.pvalue.round(3))}"`) shows that the before and after responses are not the same.
+
+```{python}
+#| label: fig-heat-pump-confident
+#| fig-cap: Visitor reponses to "I am confident that a heat pump would be an effective choice for my home" before and after a visit a heat pump event.
+
+source = linked.groupby(linkQ.q0f, as_index=False)[linkQ.q3].value_counts(sort=False)
+
+fig = (altair
+ .Chart(source)
+ .mark_bar()
+ .encode(
+    x=altair.Column(f"{linkQ.q3.replace('.', chr(92) + '.')}:O",
+    title=[linkQ.q3, "1: Not at all confident \u2192 5: Very confident"]),
+    xOffset=altair.Column(
+    f"{linkQ.q0f}:O", sort=["PRE", "POST"]),
+    y=altair.Column('count:Q', title='Visitor count'),
+    color=altair.Color(
+    f"{linkQ.q0f}:O", sort=["PRE", "POST"], scale=altair.Scale(domain=['PRE', 'POST'], range=['#6666ff', '#0000ff'])),
+).properties(
+    width=500,
+    height=200
+))
+fig.show()
+```
+
+```{python}
+#| label: fig-heat-pump-confident-change
+#| fig-cap: Differences in visitor reponses to "I am confident that a heat pump would be an effective choice for my home" before and after a visit a heat pump event.
+
+fig = (altair
+ .Chart(change_table['diff'].value_counts().sort_index().to_frame().reset_index())
+ .mark_bar(color='#0000ff')
+ .encode(
+    x=altair.Column("diff:O", title=["Difference pre- and post- visit", "0 - No change, +/- values indicate increase/decrease post-visit."]),
+    y=altair.Column("count:Q", title="Number of visitors")
+).properties(
+    width=500,
+    height=200
+))
+fig.show()
+```
+
+### I have a clear understanding of the likely installation costs of a heat pump
+
+```{python}
+change_table = (linked.pivot(columns=linkQ.q0f,
+                             index= linkQ.q0g,
+                             values=linkQ.q4)
+                      .assign(diff = lambda df: df['POST'].astype(int) - df['PRE'].astype(int),
+                              change = lambda df: df['diff'].map(numpy.sign)))
+
+table = pandas.crosstab(change_table['PRE'], change_table['POST'])
+res = SquareTable(table, shift_zeros=False).homogeneity(method='bhapkar')
+```
+
+Visitors reported a clearer understanding of likely heat pump installation costs after visiting a heat pump (@fig-heat-pump-install-costs). The most commonly selected value moved from `{python} linked.loc[linked[linkQ.q0f] == 'PRE', linkQ.q4].mode()[0]` before the visit to `{python} linked.loc[linked[linkQ.q0f] == 'POST', linkQ.q4].mode()[0]` after the visit.
+
+If we look at the differences in values pre- and post- visit (@fig-heat-pump-install-costs-change), we see that `{python} str(round(change_table['change'].value_counts(normalize=True)[0] *100, 1))`% of visitors maintain their confidence that a heat pump would be and effective choice for their home, while `{python} str(round(change_table['change'].value_counts(normalize=True)[1] *100, 1))`% report a positive change. The remaining `{python} str(round(change_table['change'].value_counts(normalize=True)[-1] *100, 1))`% report being less able to imagine having a heat pump in their home after visiting a heat pump.
+
+Bhapkar's test for marginal homogeneity ($\chi^{2}$`{python} f"({res.df}, N={change_table.shape[0]}) = {res.statistic.round(1)}, p {'< 0.001' if res.pvalue < 0.001 else '= '+ str(res.pvalue.round(3))}"`) shows that the before and after responses are not the same.
+
+```{python}
+#| label: fig-heat-pump-install-costs
+#| fig-cap: Visitor reponses to "I have a clear understanding of the likely installation costs of a heat pump" before and after a visit a heat pump event.
+
+source = linked.groupby(linkQ.q0f, as_index=False)[linkQ.q4].value_counts(sort=False)
+
+fig = (altair
+ .Chart(source)
+ .mark_bar()
+ .encode(
+    x=altair.Column(f"{linkQ.q4.replace('.', chr(92) + '.')}:O",
+    title=[linkQ.q4, "1: Not at all clear \u2192 5: Very clear"]),
+    xOffset=altair.Column(
+    f"{linkQ.q0f}:O", sort=["PRE", "POST"]),
+    y=altair.Column('count:Q', title='Visitor count'),
+    color=altair.Color(
+    f"{linkQ.q0f}:O", sort=["PRE", "POST"], scale=altair.Scale(domain=['PRE', 'POST'], range=['#6666ff', '#0000ff'])),
+).properties(
+    width=500,
+    height=200
+))
+fig.show()
+```
+
+```{python}
+#| label: fig-heat-pump-install-costs-change
+#| fig-cap: Differences in visitor reponses to "I have a clear understanding of the likely installation costs of a heat pump" before and after a visit a heat pump event.
+
+fig = (altair
+ .Chart(change_table['diff'].value_counts().sort_index().to_frame().reset_index())
+ .mark_bar(color='#0000ff')
+ .encode(
+    x=altair.Column("diff:O", title=["Difference pre- and post- visit", "0 - No change, +/- values indicate increase/decrease post-visit."]),
+    y=altair.Column("count:Q", title="Number of visitors")
+).properties(
+    width=500,
+    height=200
+))
+fig.show()
+```
+
+### I have a clear understanding of the likely running costs of a heat pump
+
+```{python}
+change_table = (linked.pivot(columns=linkQ.q0f,
+                             index= linkQ.q0g,
+                             values=linkQ.q5)
+                      .assign(diff = lambda df: df['POST'].astype(int) - df['PRE'].astype(int),
+                              change = lambda df: df['diff'].map(numpy.sign)))
+
+table = pandas.crosstab(change_table['PRE'], change_table['POST'])
+res = SquareTable(table, shift_zeros=False).homogeneity(method='bhapkar')
+```
+
+Visitors reported a clearer understanding of likely heat pump installation costs after visiting a heat pump (@fig-heat-pump-running-costs). The most commonly selected value moved from `{python} linked.loc[linked[linkQ.q0f] == 'PRE', linkQ.q5].mode()[0]` before the visit to `{python} linked.loc[linked[linkQ.q0f] == 'POST', linkQ.q5].mode()[0]` after the visit. It is apparent that people are less clear on the running costs of a heat pump compared to the installation costs.
+
+If we look at the differences in values pre- and post- visit (@fig-heat-pump-running-costs-change), we see that `{python} str(round(change_table['change'].value_counts(normalize=True)[0] *100, 1))`% of visitors maintain their confidence that a heat pump would be and effective choice for their home, while `{python} str(round(change_table['change'].value_counts(normalize=True)[1] *100, 1))`% report a positive change. The remaining `{python} str(round(change_table['change'].value_counts(normalize=True)[-1] *100, 1))`% report being less able to imagine having a heat pump in their home after visiting a heat pump.
+
+Bhapkar's test for marginal homogeneity ($\chi^{2}$`{python} f"({res.df}, N={change_table.shape[0]}) = {res.statistic.round(1)}, p {'< 0.001' if res.pvalue < 0.001 else '= '+ str(res.pvalue.round(3))}"`) shows that the before and after responses are not the same.
+
+```{python}
+#| label: fig-heat-pump-running-costs
+#| fig-cap: Visitor reponses to "I have a clear understanding of the likely running costs of a heat pump" before and after a visit a heat pump event.
+
+source = linked.groupby(linkQ.q0f, as_index=False)[linkQ.q5].value_counts(sort=False)
+
+fig = (altair
+ .Chart(source)
+ .mark_bar()
+ .encode(
+    x=altair.Column(f"{linkQ.q5.replace('.', chr(92) + '.')}:O",
+    title=[linkQ.q5, "1: Not at all clear \u2192 5: Very clear"]),
+    xOffset=altair.Column(
+    f"{linkQ.q0f}:O", sort=["PRE", "POST"]),
+    y=altair.Column('count:Q', title='Visitor count'),
+    color=altair.Color(
+    f"{linkQ.q0f}:O", sort=["PRE", "POST"], scale=altair.Scale(domain=['PRE', 'POST'], range=['#6666ff', '#0000ff'])),
+).properties(
+    width=500,
+    height=200
+))
+fig.show()
+```
+
+```{python}
+#| label: fig-heat-pump-running-costs-change
+#| fig-cap: Differences in visitor reponses to "I have a clear understanding of the likely installation costs of a heat pump" before and after a visit a heat pump event.
+
+fig = (altair
+ .Chart(change_table['diff'].value_counts().sort_index().to_frame().reset_index())
+ .mark_bar(color='#0000ff')
+ .encode(
+    x=altair.Column("diff:O", title=["Difference pre- and post- visit", "0 - No change, +/- values indicate increase/decrease post-visit."]),
+    y=altair.Column("count:Q", title="Number of visitors")
+).properties(
+    width=500,
+    height=200
+))
+fig.show()
+```
+
+### My next heating system will use a heat pump as the main heat source
+
+```{python}
+change_table = (linked.pivot(columns=linkQ.q0f,
+                             index= linkQ.q0g,
+                             values=linkQ.q6)
+                      .assign(diff = lambda df: df['POST'].astype(int) - df['PRE'].astype(int),
+                              change = lambda df: df['diff'].map(numpy.sign)))
+
+table = pandas.crosstab(change_table['PRE'], change_table['POST'])
+res = SquareTable(table, shift_zeros=False).homogeneity(method='bhapkar')
+```
+
+Visitors reported higher likelihood that their next heating system would be a heat pump after visiting a heat pump (@fig-heat-pump-next). The most commonly selected value moved from `{python} linked.loc[linked[linkQ.q0f] == 'PRE', linkQ.q6].mode()[0]` before the visit to `{python} linked.loc[linked[linkQ.q0f] == 'POST', linkQ.q6].mode()[0]` after the visit. However, visitors in general saw a strong likelihood that their next heating system would be a heat pump.
+
+If we look at the differences in values pre- and post- visit (@fig-heat-pump-next-change), we see that `{python} str(round(change_table['change'].value_counts(normalize=True)[0] *100, 1))`% of visitors maintain their view that their next heating system will use a heat pump as the main heat source, while `{python} str(round(change_table['change'].value_counts(normalize=True)[1] *100, 1))`% report a positive change. The remaining `{python} str(round(change_table['change'].value_counts(normalize=True)[-1] *100, 1))`% report lower likelihood that their next heating system would use a heat pump.
+
+Bhapkar's test for marginal homogeneity ($\chi^{2}$`{python} f"({res.df}, N={change_table.shape[0]}) = {res.statistic.round(1)}, p {'< 0.001' if res.pvalue < 0.001 else '= '+ str(res.pvalue.round(3))}"`) shows that the before and after responses are statistically similar, so we cannot conclude that respondents changed their opinion before and after the visit.
+
+```{python}
+#| label: fig-heat-pump-next
+#| fig-cap: Visitor reponses to "My next heating system will use a heat pump as the main heat source" before and after a visit a heat pump event.
+
+source = linked.groupby(linkQ.q0f, as_index=False)[linkQ.q6].value_counts(sort=False)
+
+fig = (altair
+ .Chart(source)
+ .mark_bar()
+ .encode(
+    x=altair.Column(f"{linkQ.q6.replace('.', chr(92) + '.')}:O",
+    title=[linkQ.q6, "1: Very unlikely \u2192 5: Very likely"]),
+    xOffset=altair.Column(
+    f"{linkQ.q0f}:O", sort=["PRE", "POST"]),
+    y=altair.Column('count:Q', title='Visitor count'),
+    color=altair.Color(
+    f"{linkQ.q0f}:O", sort=["PRE", "POST"], scale=altair.Scale(domain=['PRE', 'POST'], range=['#6666ff', '#0000ff'])),
+).properties(
+    width=500,
+    height=200
+))
+fig.show()
+```
+
+```{python}
+#| label: fig-heat-pump-next-change
+#| fig-cap: Differences in visitor reponses to "My next heating system will use a heat pump as the main heat source" before and after a visit a heat pump event.
+
+fig = (altair
+ .Chart(change_table['diff'].value_counts().sort_index().to_frame().reset_index())
+ .mark_bar(color='#0000ff')
+ .encode(
+    x=altair.Column("diff:O", title=["Difference pre- and post- visit", "0 - No change, +/- values indicate increase/decrease post-visit."]),
+    y=altair.Column("count:Q", title="Number of visitors")
+).properties(
+    width=500,
+    height=200
+))
+fig.show()
+```
+
+### I know what steps I would need to take to install a heat pump in my own home
+
+```{python}
+change_table = (linked.pivot(columns=linkQ.q0f,
+                             index= linkQ.q0g,
+                             values=linkQ.q7)
+                      .assign(diff = lambda df: df['POST'].astype(int) - df['PRE'].astype(int),
+                              change = lambda df: df['diff'].map(numpy.sign)))
+
+table = pandas.crosstab(change_table['PRE'], change_table['POST'])
+res = SquareTable(table, shift_zeros=False).homogeneity(method='bhapkar')
+```
+
+Visitors reported higher knowledge of the steps required to install a heat pump in their homes after visiting a heat pump (@fig-heat-pump-steps). The most commonly selected value moved from `{python} linked.loc[linked[linkQ.q0f] == 'PRE', linkQ.q7].mode()[0]` before the visit to `{python} linked.loc[linked[linkQ.q0f] == 'POST', linkQ.q7].mode()[0]` after the visit.
+
+If we look at the differences in values pre- and post- visit (@fig-heat-pump-steps-change), we see that `{python} str(round(change_table['change'].value_counts(normalize=True)[0] *100, 1))`% of visitors maintain their view that they know the steps needed to install a heat pump, while `{python} str(round(change_table['change'].value_counts(normalize=True)[1] *100, 1))`% report a positive change. The remaining `{python} str(round(change_table['change'].value_counts(normalize=True)[-1] *100, 1))`% report lower agreement that they know the steps needed to install a heat pump.
+
+Bhapkar's test for marginal homogeneity ($\chi^{2}$`{python} f"({res.df}, N={change_table.shape[0]}) = {res.statistic.round(1)}, p {'< 0.001' if res.pvalue < 0.001 else '= '+ str(res.pvalue.round(3))}"`) shows that the before and after responses are not the same.
+
+```{python}
+#| label: fig-heat-pump-steps
+#| fig-cap: Visitor reponses to "I know what steps I would need to take to install a heat pump in my own home" before and after a visit a heat pump event.
+
+source = linked.groupby(linkQ.q0f, as_index=False)[linkQ.q7].value_counts(sort=False)
+
+fig = (altair
+ .Chart(source)
+ .mark_bar()
+ .encode(
+    x=altair.Column(f"{linkQ.q7.replace('.', chr(92) + '.')}:O",
+    title=[linkQ.q7, "1: Disagree strongly \u2192 5: Agree strongly"]),
+    xOffset=altair.Column(
+    f"{linkQ.q0f}:O", sort=["PRE", "POST"]),
+    y=altair.Column('count:Q', title='Visitor count'),
+    color=altair.Color(
+    f"{linkQ.q0f}:O", sort=["PRE", "POST"], scale=altair.Scale(domain=['PRE', 'POST'], range=['#6666ff', '#0000ff'])),
+).properties(
+    width=500,
+    height=200
+))
+fig.show()
+```
+
+```{python}
+#| label: fig-heat-pump-steps-change
+#| fig-cap: Differences in visitor reponses to "I know what steps I would need to take to install a heat pump in my own home" before and after a visit a heat pump event.
+
+fig = (altair
+ .Chart(change_table['diff'].value_counts().sort_index().to_frame().reset_index())
+ .mark_bar(color='#0000ff')
+ .encode(
+    x=altair.Column("diff:O", title=["Difference pre- and post- visit", "0 - No change, +/- values indicate increase/decrease post-visit."]),
+    y=altair.Column("count:Q", title="Number of visitors")
+).properties(
+    width=500,
+    height=200
+))
+fig.show()
+```
+
+### I have already taken steps to install a heat pump in my home
+
+```{python}
+change_table = (linked.pivot(columns=linkQ.q0f,
+                             index= linkQ.q0g,
+                             values=linkQ.q8))
+
+table = pandas.crosstab(change_table['PRE'], change_table['POST'])
+res = SquareTable(table, shift_zeros=False).homogeneity(method='bhapkar')
+```
+
+Finally, we asked visitors if they had taken any steps to install a heat pump before and after their visit (@fig-heat-pump-action). Before the visit, `{python} str(round(change_table['PRE'].value_counts(normalize=True)['Yes'] * 100, 1))`% of respondents reported having taken steps to install a heat pump, while after the visit `{python} str(round(change_table['POST'].value_counts(normalize=True)['Yes'] * 100, 1))`% reported having taken steps.
+
+Bhapkar's test for marginal homogeneity ($\chi^{2}$`{python} f"({res.df}, N={change_table.shape[0]}) = {res.statistic.round(1)}, p {'< 0.001' if res.pvalue < 0.001 else '= '+ str(res.pvalue.round(3))}"`) shows that the before and after responses are not the same.
+
+```{python}
+#| label: fig-heat-pump-action
+#| fig-cap: Visitor reponses to "I have already taken steps to install a heat pump in my home" before and after a visit a heat pump event.
+
+source = linked.groupby(linkQ.q0f, as_index=False)[linkQ.q8].value_counts(sort=False)
+
+fig = (altair
+ .Chart(source)
+ .mark_bar()
+ .encode(
+    x=altair.Column(f"{linkQ.q8.replace('.', chr(92) + '.')}:O",
+    title=linkQ.q8),
+    xOffset=altair.Column(
+    f"{linkQ.q0f}:O", sort=["PRE", "POST"]),
+    y=altair.Column('count:Q', title='Visitor count'),
+    color=altair.Color(
+    f"{linkQ.q0f}:O", sort=["PRE", "POST"], scale=altair.Scale(domain=['PRE', 'POST'], range=['#6666ff', '#0000ff'])),
+).properties(
+    width=500,
+    height=200
+))
+fig.show()
+```
+
+## Experience of Visit a Heat Pump
+
+After the visit, we also asked visitors some specific questions about their visit, the host, and the website. The following tables just make use of the post-visit survey, which covers all the people who provided a complete response to the post-visit survey.
+
+### Experiences of the visit
+
+Experiences of the visit were very positive (@fig-experience-visit), the greatest area for improvement appears to be keeping visitors informed about the process.
+
+```{python}
+#| label: fig-experience-visit
+#| fig-cap: Visitor experience of the visit itself (post-survey).
+
+table = (pandas.concat([post[q].value_counts().rename(q.split(":")[0]) for q in postQ.q1], axis=1)
+         .reset_index(names=['response'])
+         .melt(id_vars='response'))
+
+# Shorten question labels for plotting
+table['variable'] = table['variable'].map({'Visiting a heat pump was a worthwhile experience': 'Visiting a heat pump was a worthwhile experience',
+                       'I feel more informed about what it is like to live with a heat pump': 'I feel more informed about what it is like to live with a heat pump',
+                       'I feel more informed about the process of choosing and installing a heat pump.': 'I feel more informed about choosing and installing a heat pump.',
+                       'Visiting a heat pump has given me more confidence to explore my home heating options.': 'The visit has given me more confidence to explore my home heating options.'
+                       })
+
+fig = (altair.Chart(table)
+       .mark_bar().encode(
+            x=altair.X('sum(value)', title="Percentage of Visitors").stack("normalize"),
+            y=altair.Column('variable', title="", axis=altair.Axis(labelLimit=350)),
+            color=altair.Column("response:O", sort=["Disagree Strongly", "Disagree", "Neither Agree nor Disagree", "Agree", "Agree Strongly"][::-1]),
+            order=altair.Order('color_response_sort_index:Q'))
+        .properties(
+            width=500,
+            height=200)
+      )
+
+fig.show()
+```
+
+### Experience of the host
+
+Visitor feedback on hosts was overwhelmingly positive (@fig-experience-host). Hosts are widely seen as welcoming, well informed and knowledgeable.
+
+```{python}
+#| label: fig-experience-host
+#| fig-cap: Visitor experience of the host of the visit (post-survey).
+
+table = (pandas.concat([post[q].value_counts().rename(q.split(":")[0]) for q in postQ.q2], axis=1)
+         .reset_index(names=['response'])
+         .melt(id_vars='response'))
+
+fig = (altair.Chart(table)
+       .mark_bar().encode(
+            x=altair.X('sum(value)', title="Percentage of Visitors").stack("normalize"),
+            y=altair.Column('variable', title="", axis=altair.Axis(labelLimit=350)),
+            color=altair.Column("response:O", sort=["Disagree strongly", "Disagree", "Neither agree nor disagree", "Agree", "Agree strongly"][::-1]),
+            order=altair.Order('color_response_sort_index:Q'))
+        .properties(
+            width=500,
+            height=200)
+      )
+
+fig.show()
+```
+
+### Experience of the 'Visit a Heat Pump' website
+
+Visitor feedback on the website was also positive (@fig-experience-website) and visitors thought it was clear and easy to use. It is noteworthy that this feedback was captured over a period in which the website was subject to numerous improvements and upgrades.
+
+```{python}
+#| label: fig-experience-website
+#| fig-cap: Visitor experience of the Visit a Heat Pump website (post-survey).
+
+table = (pandas.concat([post[q].value_counts().rename(q.split(":")[0]) for q in postQ.q3], axis=1)
+         .reset_index(names=['response'])
+         .melt(id_vars='response'))
+
+fig = (altair.Chart(table)
+       .mark_bar().encode(
+            x=altair.X('sum(value)', title="Percentage of Visitors").stack("normalize"),
+            y=altair.Column('variable', title="", axis=altair.Axis(labelLimit=350)),
+            color=altair.Column("response:O", sort=["Disagree strongly", "Disagree", "Neither agree nor disagree", "Agree", "Agree strongly"][::-1]),
+            order=altair.Order('color_response_sort_index:Q'))
+        .properties(
+            width=500,
+            height=200)
+      )
+
+fig.show()
+```
+
+### Did you attend 'visit a heat pump' with anyone else?
+
+Attending a visit was split between visitors who attended alone and visitors who attended with someone else, usually a partner or spouse (@tbl-visitor-attendence).
+
+```{python}
+#| label: tbl-visitor-attendence
+#| tbl-cap: Did you attend 'visit a heat pump' with anyone else? (Select all that apply).
+
+table = post[postQ.q4].sum()
+table.name = "count"
+# abbreviation Index
+table.index = [label.split(":")[0] for label in table.index]
+table.index.name = "Did you attend 'visit a heat pump' with anyone else?"
+
+Markdown(table.to_frame().assign(percentage = lambda df: round(df['count'] / post.shape[0] * 100, 1)).to_markdown())
+```
+
+### How many people have you spoken to about visiting a heat pump?
+
+Excluding people that they visited with, visitors often spoke to others about their visit (@tbl-visitor-word-of-mouth).
+
+```{python}
+#| label: tbl-visitor-word-of-mouth
+#| tbl-cap: How many people have you spoken to about visiting a heat pump?
+
+
+Markdown(post[postQ.q5].value_counts().sort_index().to_frame().assign(percentage = lambda df: round(df['count'] / df['count'].sum() * 100, 1)).to_markdown())
+```
+
+### Considering your 'visit a heat pump' experience, how likely are you to recommend it to a friend or colleague?
+
+Visitors told us that they were extremely likely to recommend it to a friend (@tbl-visitor-recommend).
+
+```{python}
+#| label: tbl-visitor-recommend
+#| tbl-cap: Considering your 'visit a heat pump' experience, how likely are you to recommend it to a friend or colleague?
+
+post[postQ.q6] = pandas.Categorical(post[postQ.q6], categories=[1,2,3,4,5,6,7,8,9,10], ordered=True)
+
+Markdown(post[postQ.q6].value_counts().sort_index().to_frame().assign(percentage = lambda df: round(df['count'] / df['count'].sum() * 100, 1)).to_markdown())
+```
+
+### Attitudes towards the home energy transition
+
+Visitors agreed with the three statements posed (@fig-home-energy-transition), but were less positive about homeowners' role in net zero than the government.
+
+```{python}
+#| label: fig-home-energy-transition
+#| fig-cap: Visitor attitudes towards the home energy transition.
+
+table = (pandas.concat([post[q].value_counts().rename(q.split(":")[0]) for q in postQ.q18], axis=1)
+         .reset_index(names=['response'])
+         .melt(id_vars='response'))
+
+# Shorten question labels for plotting
+table['variable'] = table['variable'].map({'In the UK, the way we heat almost all of our homes will need to change to help address climate change.': 'How we heat our homes needs to change to address climate change',
+       'Homeowners have a responsibility to upgrade their homes to use low carbon heating technologies, like heat pumps.': 'Homeowners have a responsibility to upgrade their home heating',
+       'The Government has a duty to ensure all UK households adopt low carbon heating technologies, like heat pumps.': 'Government has a duty to ensure all UK households adopt low carbon heating'})
+
+fig = (altair.Chart(table)
+       .mark_bar().encode(
+            x=altair.X('sum(value)', title="Percentage of Visitors").stack("normalize"),
+            y=altair.Column('variable', title="", axis=altair.Axis(labelLimit=350)),
+            color=altair.Column("response:O", sort=["Disagree strongly", "Disagree", "Neither agree nor disagree", "Agree", "Agree strongly"][::-1]),
+            order=altair.Order('color_response_sort_index:Q'))
+        .properties(
+            width=500,
+            height=200)
+      )
+
+fig.show()
+```
