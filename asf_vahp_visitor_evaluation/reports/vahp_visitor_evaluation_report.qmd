@@ -262,7 +262,24 @@ To evaluate the more immediate impact of visiting a heat pump, we asked visitors
 
 The sample of people who provided responses both before and after their visit is smaller than the total sample of people who filled in the pre-visit survey. We looked at whether the people in the linked sample were different to the pre-visit sample and found no evidence that they different significantly by gender, age or ethnicity, by tenure type, type or age of property, or by the heat pump journey questions discussed below. We tested these using chi-square tests of association. As such, the result present are broadly representative of the visitors discussed above. We can in a sense treat the linked data as a random sample of the pre survey data, albeit with the proviso that it may be non-random on some unobserved variable. This result largely stems from the fact that the vast majority of visitors stem from particular groups: older, white, owner occupiers of houses; over time as visitors diversify we may have to adjust for differences in response that emerge.
 
-Visitors reported improvements in all heat pump journey statements set out below except "My next heating system will use a heat pump as the main heat source" which stayed the same. Responses to this statement were already high before the visit as the sample of visitors observed are already highly motivated to install a heat pump in the future.
+Visitors reported improvements in all heat pump journey statements, except "My next heating system will use a heat pump as the main heat source" which stayed the same. Responses to this statement were already high before the visit as the sample of visitors observed are already highly motivated to install a heat pump in the future. @tbl-visitor-summary provides a summary of these findings before and after, and subsequent sections provide greater detail on each specific question.
+
+```{python}
+#| label: tbl-visitor-summary
+#| tbl-cap: Summary of visitor before and after visit responses to heat pump journey questions.
+
+Markdown((linked.loc[:, [linkQ.q0f, linkQ.q1, linkQ.q2, linkQ.q3, linkQ.q4, linkQ.q5, linkQ.q6, linkQ.q7]]
+ .assign(**{linkQ.q1: lambda df: (df[linkQ.q1] > '3'),
+            linkQ.q2: lambda df: (df[linkQ.q2] > '3'),
+            linkQ.q3: lambda df: (df[linkQ.q3] > '3'),
+            linkQ.q4: lambda df: (df[linkQ.q4] > '3'),
+            linkQ.q5: lambda df: (df[linkQ.q5] > '3'),
+            linkQ.q6: lambda df: (df[linkQ.q6] > '3'),
+            linkQ.q7: lambda df: (df[linkQ.q7] > '3')})
+ .groupby(linkQ.q0f).mean().T.loc[:, ['PRE', 'POST']] * 100
+ ).round(1).reset_index(names="Respondents who agree or strongly agree with the following statements").rename(columns={'PRE': 'Before (%)', 'POST': 'After (%)'}).to_markdown(index=False))
+```
+
 
 ### I understand how a heat pump works
 
