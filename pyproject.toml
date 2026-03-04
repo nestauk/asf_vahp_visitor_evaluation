@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools >= 77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "asf-vahp-visitor-evaluation"
+version = "0.1.0"
+description = "Code to analyse Visit a Heat Pump visitor survey responses"
+authors = [{ name = "Daniel Lewis" }]
+license = "MIT"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+]
+
+[dependency-groups]
+dev = [
+    "numpy>=2.4.2",
+    "black>=26.1.0",
+    "flake8>=7.3.0",
+    "flake8-bandit>=4.1.1",
+    "flake8-black>=0.4.0",
+    "flake8-bugbear>=25.11.29",
+    "flake8-import-order>=0.19.2",
+    "ipykernel>=7.2.0",
+    "jupytext>=1.19.1",
+    "pre-commit>=4.5.1",
+    "pre-commit-hooks>=6.0.0",
+    "pytest>=9.0.2",
+    "sphinx>=9.1.0",
+    "sphinx-rtd-theme>=3.1.0",
+    "sphinxcontrib-napoleon>=0.7",
+    "pandas>=3.0.1",
+]
+[tool.setuptools]
+packages = ["asf_vahp_visitor_evaluation"]
