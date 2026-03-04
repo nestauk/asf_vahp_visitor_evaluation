@@ -89,10 +89,22 @@ def get_option_counts_and_proportions(question_title: str, mask=None):
             .reset_index()
             .drop(columns=0)
         )
+
+    print(question_title)
     print(f"eligible respondents: {len(question_of_interest)}")
-    return question_of_interest["option"].value_counts(), question_of_interest[
-        "option"
-    ].value_counts(normalize=True)
+    print(question_of_interest["option"].value_counts())
+    print(question_of_interest["option"].value_counts(normalize=True))
+
+    df_counts = pd.DataFrame(question_of_interest["option"].value_counts())
+    df_counts = df_counts.transpose()
+    df_proportion = pd.DataFrame(
+        question_of_interest["option"].value_counts(normalize=True)
+    )
+    df_proportion = df_proportion.transpose()
+    df = pd.concat([df_counts, df_proportion])
+    header = [[question_title] * len(list(df.columns)), list(df.columns)]
+    df.columns = header
+    return df
 
 
 # %% [markdown]
@@ -102,8 +114,7 @@ def get_option_counts_and_proportions(question_title: str, mask=None):
 question_title = (
     "Which of the following most applies to you since you visited a heat pump?"
 )
-print(question_title)
-get_option_counts_and_proportions(question_title)
+df1 = get_option_counts_and_proportions(question_title)
 
 # %% [markdown]
 # ## Likelihood of installing an ASHP
@@ -115,8 +126,7 @@ mask = df_wide[
 ][
     "I have taken steps towards installing a heat pump and still intend to install a heat pump in my home"
 ]
-print(question_title)
-get_option_counts_and_proportions(question_title, mask)
+df2 = get_option_counts_and_proportions(question_title, mask)
 
 # %% [markdown]
 # ## Did VAHP help (taking steps)?
@@ -135,8 +145,7 @@ mask = (
         "I have taken steps towards installing a heat pump but no longer wish to install a heat pump in my home"
     ]
 )
-print(question_title)
-get_option_counts_and_proportions(question_title, mask)
+df3 = get_option_counts_and_proportions(question_title, mask)
 
 # %% [markdown]
 # ## Did VAHP help (installing)?
@@ -153,8 +162,7 @@ mask = (
         "Which of the following most applies to you since you visited a heat pump?"
     ]["I have installed a heat pump in my home since visiting a heat pump"]
 )
-print(question_title)
-get_option_counts_and_proportions(question_title, mask)
+df4 = get_option_counts_and_proportions(question_title, mask)
 
 # %% [markdown]
 # ## Heat pump installation intention
@@ -164,7 +172,16 @@ question_title = "Would you have installed a heat pump anyway, even if you had n
 mask = df_wide[
     "Which of the following most applies to you since you visited a heat pump?"
 ]["I have installed a heat pump in my home since visiting a heat pump"]
-print(question_title)
-get_option_counts_and_proportions(question_title, mask)
+df5 = get_option_counts_and_proportions(question_title, mask)
+
+# %% [markdown]
+# ## Save the data
 
 # %%
+response_df = pd.concat([df1, df2, df3, df4, df5], axis=1)
+
+# %%
+response_df
+
+# %%
+response_df.to_csv("vahp_eval_survey_analysis.csv")
